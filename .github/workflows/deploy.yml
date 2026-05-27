@@ -38,7 +38,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             # Navigate to the project directory on the VM
-            cd ~/final-project-operational
+            cd ~/final-project-mci-operational
             
             # Execute the deployment script
             bash deploy.sh
