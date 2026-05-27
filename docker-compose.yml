@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 x-airflow-common:
   &airflow-common
@@ -9,6 +9,7 @@ x-airflow-common:
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres/${POSTGRES_DB:-airflow}
     AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
     _PIP_ADDITIONAL_REQUIREMENTS: pandas scikit-learn clickhouse-driver numpy gdown
   volumes:
     - ./dags:/opt/airflow/dags

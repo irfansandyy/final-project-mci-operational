@@ -48,8 +48,8 @@ def download_and_extract_data():
         gdown.download(GDRIVE_URL, ZIP_PATH, quiet=False)
         print("Download complete. Extracting...")
         with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
-            # The zip likely extracts into a folder, handle accordingly
-            zip_ref.extractall('/opt/airflow/')
+            # The zip contains the files directly at the root, so extract directly into DATA_DIR
+            zip_ref.extractall(DATA_DIR)
         print("Extraction complete.")
         
         # Verify files are now present
