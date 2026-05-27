@@ -29,6 +29,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    environment: actions
     steps:
       - name: Deploy to Azure VM
         uses: appleboy/ssh-action@v0.1.10
