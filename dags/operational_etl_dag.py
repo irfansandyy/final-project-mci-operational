@@ -166,7 +166,7 @@ with DAG(
     'operational_etl_dag',
     default_args=default_args,
     description='ETL pipeline for DustiniaDelixia Groceria Operational Analytics',
-    schedule_interval=timedelta(days=1),
+    schedule=timedelta(hours=1),
     catchup=False,
 ) as dag:
 
