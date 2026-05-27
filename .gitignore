@@ -1,2 +1,7 @@
 # Exclude Dataset
-./DustiniaDelixia_Groceria
+DustiniaDelixia_Groceria/
+*.csv
+finalproject_mci_2026.pdf
+credentials.txt
+.env
+nginx.conf
