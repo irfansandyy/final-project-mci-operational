@@ -10,6 +10,8 @@ x-airflow-common:
     AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+    CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse123}
     _PIP_ADDITIONAL_REQUIREMENTS: pandas scikit-learn clickhouse-driver numpy gdown
   volumes:
     - ./dags:/opt/airflow/dags
@@ -70,6 +72,9 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server
     restart: always
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse123}
     # Ports removed to prevent external access, ensuring strict Docker bridge network isolation
     volumes:
       - clickhouse_data_vol:/var/lib/clickhouse

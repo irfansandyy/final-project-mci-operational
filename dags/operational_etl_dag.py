@@ -24,6 +24,8 @@ default_args = {
 
 DATA_DIR = '/opt/airflow/DustiniaDelixia_Groceria'
 CLICKHOUSE_HOST = 'clickhouse'
+CLICKHOUSE_USER = os.environ.get('CLICKHOUSE_USER', 'default')
+CLICKHOUSE_PASSWORD = os.environ.get('CLICKHOUSE_PASSWORD', 'clickhouse123')
 GDRIVE_URL = 'https://drive.google.com/uc?id=1BRrvsIDOk9soBlsKwWqMsS79oVBQgZtf'
 ZIP_PATH = '/opt/airflow/DustiniaDelixia_Groceria.zip'
 
@@ -124,7 +126,7 @@ def transform_and_load():
     else:
         fact['predicted_delay_probability'] = 0.0
 
-    client = Client(host=CLICKHOUSE_HOST)
+    client = Client(host=CLICKHOUSE_HOST, user=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD)
     
     cust_records = customers[['customer_id', 'customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state']].to_dict('records')
     client.execute('INSERT INTO operational_db.dim_customers VALUES', cust_records)
