@@ -144,25 +144,32 @@ def transform_and_load():
     else:
         fact_final = fact_assembled.withColumn("predicted_delay_probability", lit(0.0)).drop("features", "seller_state_encoded", "customer_state_encoded")
         
-    # Prepare JDBC Properties
-    jdbc_url = f"jdbc:clickhouse://{CLICKHOUSE_HOST}:8123/operational_db"
-    properties = {
-        "user": CLICKHOUSE_USER,
-        "password": CLICKHOUSE_PASSWORD,
-        "driver": "com.clickhouse.jdbc.ClickHouseDriver"
-    }
+    # Custom Write Function using native clickhouse-driver via foreachPartition
+    def write_to_clickhouse(df, table_name):
+        def _insert_partition(iterator):
+            from clickhouse_driver import Client
+            client = Client(
+                host=CLICKHOUSE_HOST,
+                user=CLICKHOUSE_USER,
+                password=CLICKHOUSE_PASSWORD,
+                database='operational_db'
+            )
+            records = [row.asDict() for row in iterator]
+            if records:
+                client.execute(f"INSERT INTO {table_name} VALUES", records)
+        df.foreachPartition(_insert_partition)
 
     # Load Dimensions
     dim_cust = customers.select("customer_id", "customer_unique_id", "customer_zip_code_prefix", "customer_city", "customer_state")
-    dim_cust.write.jdbc(url=jdbc_url, table="dim_customers", mode="append", properties=properties)
+    write_to_clickhouse(dim_cust, "dim_customers")
 
     dim_sellers = sellers.select("seller_id", "seller_zip_code_prefix", "seller_city", "seller_state")
-    dim_sellers.write.jdbc(url=jdbc_url, table="dim_sellers", mode="append", properties=properties)
+    write_to_clickhouse(dim_sellers, "dim_sellers")
 
     dim_reviews = reviews.select("review_id", "order_id", "review_score", "review_creation_date", "review_answer_timestamp").filter(col("order_id").isNotNull() & col("review_id").isNotNull())
     dim_reviews = dim_reviews.withColumn("review_creation_date", to_timestamp(col("review_creation_date")))
     dim_reviews = dim_reviews.withColumn("review_answer_timestamp", to_timestamp(col("review_answer_timestamp")))
-    dim_reviews.write.jdbc(url=jdbc_url, table="dim_reviews", mode="append", properties=properties)
+    write_to_clickhouse(dim_reviews, "dim_reviews")
 
     # Fact Table selection
     fact_cols = [
@@ -175,9 +182,9 @@ def transform_and_load():
         'predicted_delay_probability'
     ]
     fact_final_write = fact_final.select(*fact_cols)
-    fact_final_write.write.jdbc(url=jdbc_url, table="fact_deliveries", mode="append", properties=properties)
+    write_to_clickhouse(fact_final_write, "fact_deliveries")
     
-    print(f"Successfully loaded data into ClickHouse via PySpark JDBC.")
+    print(f"Successfully loaded data into ClickHouse via native clickhouse-driver.")
     spark.stop()
 
 with DAG(
