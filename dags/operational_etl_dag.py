@@ -80,7 +80,7 @@ def transform_and_load():
     
     spark = SparkSession.builder \
         .appName("Operational_ETL_PySpark") \
-        .config("spark.driver.memory", "4g") \
+        .config("spark.driver.memory", "1g") \
         .config("spark.jars.packages", "com.clickhouse:clickhouse-jdbc:0.4.6") \
         .getOrCreate()
         

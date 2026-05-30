@@ -10,6 +10,7 @@ x-airflow-common:
     AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+    AIRFLOW__WEBSERVER__WORKERS: '2'
     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
     CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse123}
   volumes:
@@ -23,6 +24,7 @@ services:
   postgres:
     image: postgres:13
     restart: always
+    mem_limit: 512m
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-airflow}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-airflow}
@@ -38,6 +40,7 @@ services:
   airflow-init:
     <<: *airflow-common
     command: version
+    mem_limit: 512m
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_UPGRADE: 'true'
@@ -49,6 +52,7 @@ services:
     <<: *airflow-common
     command: webserver
     restart: always
+    mem_limit: 768m
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:
@@ -64,6 +68,7 @@ services:
     <<: *airflow-common
     command: scheduler
     restart: always
+    mem_limit: 1536m
     ports:
       - "127.0.0.1:4040:4040"
     depends_on:
@@ -73,6 +78,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server
     restart: always
+    mem_limit: 1536m
     environment:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse123}
@@ -89,10 +95,12 @@ services:
   metabase:
     image: metabase/metabase:latest
     restart: always
+    mem_limit: 1g
     ports:
       - "127.0.0.1:3000:3000"
     environment:
       - MB_DB_TYPE=h2
+      - JAVA_TOOL_OPTIONS="-Xmx768m"
     volumes:
       - metabase_data_vol:/metabase-data
     depends_on:
@@ -102,6 +110,7 @@ services:
   jupyter-notebook:
     image: quay.io/jupyter/pyspark-notebook:latest
     restart: always
+    mem_limit: 1536m
     ports:
       - "127.0.0.1:8888:8888"
     environment:
