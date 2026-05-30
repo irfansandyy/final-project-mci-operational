@@ -129,21 +129,35 @@ def transform_and_load():
     client = Client(host=CLICKHOUSE_HOST, user=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD)
     
     cust_records = customers[['customer_id', 'customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state']].to_dict('records')
+    for r in cust_records:
+        for k, v in r.items():
+            if pd.isnull(v): r[k] = None
+            elif k == 'customer_zip_code_prefix': r[k] = int(v)
     client.execute('INSERT INTO operational_db.dim_customers VALUES', cust_records)
     
     seller_records = sellers[['seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state']].to_dict('records')
+    for r in seller_records:
+        for k, v in r.items():
+            if pd.isnull(v): r[k] = None
+            elif k == 'seller_zip_code_prefix': r[k] = int(v)
     client.execute('INSERT INTO operational_db.dim_sellers VALUES', seller_records)
     
     rev_df = reviews[['review_id', 'order_id', 'review_score', 'review_creation_date', 'review_answer_timestamp']].copy()
     rev_df = rev_df.dropna(subset=['order_id', 'review_id'])
     rev_records = rev_df.to_dict('records')
     
-    # Convert Pandas datetime/NaT to native Python datetime/None for ClickHouse driver
     for record in rev_records:
-        for col in ['review_creation_date', 'review_answer_timestamp']:
-            val = record[col]
-            record[col] = val.to_pydatetime() if pd.notnull(val) else None
+        for k, v in record.items():
+            if pd.isnull(v):
+                record[k] = None
+            elif k in ['review_creation_date', 'review_answer_timestamp']:
+                record[k] = v.to_pydatetime()
+            elif k == 'review_score':
+                record[k] = int(v)
     client.execute('INSERT INTO operational_db.dim_reviews VALUES', rev_records)
+    
+    # To allow is_delayed to be null for missing delivery dates
+    fact.loc[fact['order_delivered_customer_date'].isnull(), 'is_delayed'] = np.nan
     
     fact_cols = [
         'order_id', 'customer_id', 'seller_id', 'order_status', 
@@ -154,20 +168,16 @@ def transform_and_load():
         'predicted_delay_probability'
     ]
     fact_df = fact[fact_cols].copy()
-    
-    fact_df['seller_id'] = fact_df['seller_id'].fillna('')
-    fact_df['lead_time_days'] = fact_df['lead_time_days'].replace({np.nan: None})
-    fact_df['processing_time_days'] = fact_df['processing_time_days'].replace({np.nan: None})
-    fact_df['is_delayed'] = fact_df['is_delayed'].fillna(0).astype(int)
-    
     fact_records = fact_df.to_dict('records')
     
-    # Convert Pandas datetime/NaT to native Python datetime/None on the native dictionaries
-    # This prevents Pandas from automatically coercing None back to NaT
     for record in fact_records:
-        for col in date_cols:
-            val = record[col]
-            record[col] = val.to_pydatetime() if pd.notnull(val) else None
+        for k, v in record.items():
+            if pd.isnull(v):
+                record[k] = None
+            elif k in date_cols:
+                record[k] = v.to_pydatetime()
+            elif k == 'is_delayed':
+                record[k] = int(v)
     client.execute('INSERT INTO operational_db.fact_deliveries VALUES', fact_records)
     
     print(f"Successfully loaded {len(fact_records)} records into fact_deliveries.")
