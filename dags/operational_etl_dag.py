@@ -160,13 +160,16 @@ def transform_and_load():
         df.foreachPartition(_insert_partition)
 
     # Load Dimensions
-    dim_cust = customers.select("customer_id", "customer_unique_id", "customer_zip_code_prefix", "customer_city", "customer_state")
+    dim_cust = customers.select("customer_id", "customer_unique_id", "customer_zip_code_prefix", "customer_city", "customer_state").filter(col("customer_id").isNotNull())
+    dim_cust = dim_cust.withColumn("customer_zip_code_prefix", col("customer_zip_code_prefix").cast("int"))
     write_to_clickhouse(dim_cust, "dim_customers")
 
-    dim_sellers = sellers.select("seller_id", "seller_zip_code_prefix", "seller_city", "seller_state")
+    dim_sellers = sellers.select("seller_id", "seller_zip_code_prefix", "seller_city", "seller_state").filter(col("seller_id").isNotNull())
+    dim_sellers = dim_sellers.withColumn("seller_zip_code_prefix", col("seller_zip_code_prefix").cast("int"))
     write_to_clickhouse(dim_sellers, "dim_sellers")
 
     dim_reviews = reviews.select("review_id", "order_id", "review_score", "review_creation_date", "review_answer_timestamp").filter(col("order_id").isNotNull() & col("review_id").isNotNull())
+    dim_reviews = dim_reviews.withColumn("review_score", col("review_score").cast("int"))
     dim_reviews = dim_reviews.withColumn("review_creation_date", to_timestamp(col("review_creation_date")))
     dim_reviews = dim_reviews.withColumn("review_answer_timestamp", to_timestamp(col("review_answer_timestamp")))
     write_to_clickhouse(dim_reviews, "dim_reviews")
@@ -181,7 +184,13 @@ def transform_and_load():
         'freight_value', 'purchase_hour', 'route',
         'predicted_delay_probability'
     ]
-    fact_final_write = fact_final.select(*fact_cols)
+    fact_final_write = fact_final.select(*fact_cols).filter(col("order_purchase_timestamp").isNotNull() & col("order_id").isNotNull())
+    fact_final_write = fact_final_write.withColumn("lead_time_days", col("lead_time_days").cast("float")) \
+        .withColumn("processing_time_days", col("processing_time_days").cast("float")) \
+        .withColumn("freight_value", col("freight_value").cast("float")) \
+        .withColumn("predicted_delay_probability", col("predicted_delay_probability").cast("float")) \
+        .withColumn("is_delayed", col("is_delayed").cast("int")) \
+        .withColumn("purchase_hour", col("purchase_hour").cast("int"))
     write_to_clickhouse(fact_final_write, "fact_deliveries")
     
     print(f"Successfully loaded data into ClickHouse via native clickhouse-driver.")
