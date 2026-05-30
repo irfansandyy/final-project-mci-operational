@@ -77,3 +77,37 @@ JOIN operational_db.dim_sellers s ON f.seller_id = s.seller_id
 GROUP BY s.seller_state
 ORDER BY avg_delay_probability_percent DESC;
 ```
+
+## 6. Deep EDA: Worst Performing Routes (Seller State -> Customer State)
+**Description**: Identifies the specific supply chain routes experiencing the highest delay rates.
+**Visualization Type**: **Horizontal Bar Chart**.
+
+```sql
+SELECT 
+    route,
+    AVG(is_delayed) * 100 AS delay_rate_percent,
+    AVG(freight_value) AS avg_freight,
+    AVG(lead_time_days) AS avg_delivery_days,
+    COUNT(order_id) AS order_count
+FROM operational_db.fact_deliveries
+WHERE route IS NOT NULL AND is_delayed IS NOT NULL
+GROUP BY route
+HAVING order_count > 50
+ORDER BY delay_rate_percent DESC
+LIMIT 10;
+```
+
+## 7. Deep EDA: Delivery Delay Rate by Purchase Hour
+**Description**: Analyzes how the time-of-day when an order is placed correlates with operational delays.
+**Visualization Type**: **Line Chart** or **Bar Chart**.
+
+```sql
+SELECT 
+    purchase_hour,
+    AVG(is_delayed) * 100 AS delay_rate_percent,
+    COUNT(order_id) AS total_orders
+FROM operational_db.fact_deliveries
+WHERE purchase_hour IS NOT NULL AND is_delayed IS NOT NULL
+GROUP BY purchase_hour
+ORDER BY purchase_hour;
+```

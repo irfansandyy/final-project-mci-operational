@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS fact_deliveries (
     lead_time_days Nullable(Float32),
     processing_time_days Nullable(Float32),
     is_delayed Nullable(UInt8), -- 1 for True, 0 for False
+    freight_value Nullable(Float32),
+    purchase_hour Nullable(UInt8),
+    route Nullable(String),
     
     -- Machine Learning Prediction
     predicted_delay_probability Nullable(Float32)
