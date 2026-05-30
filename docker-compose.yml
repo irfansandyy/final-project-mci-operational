@@ -100,7 +100,7 @@ services:
         condition: service_healthy
 
   jupyter-notebook:
-    image: quay.io/jupyter/datascience-notebook:latest
+    image: quay.io/jupyter/pyspark-notebook:latest
     restart: always
     ports:
       - "127.0.0.1:8888:8888"
@@ -108,8 +108,9 @@ services:
       - JUPYTER_TOKEN=${JUPYTER_SECURE_TOKEN:-SecureToken123}
     command: "start-notebook.sh --ServerApp.terminals_enabled=False"
     volumes:
-      - jupyter_data:/home/jovyan/work
-      - ./DustiniaDelixia_Groceria:/home/jovyan/work/raw_data:ro
+      - jupyter_data:/home/jovyan
+      - ./DustiniaDelixia_Groceria:/home/jovyan/raw_data:ro
+      - ./jupyter_requirements.txt:/home/jovyan/jupyter_requirements.txt
 
 volumes:
   clickhouse_data_vol:

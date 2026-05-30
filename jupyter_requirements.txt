@@ -1,0 +1,7 @@
+clickhouse-connect
+pandas
+numpy
+matplotlib
+seaborn
+pyspark
+gdown
