@@ -135,13 +135,14 @@ def transform_and_load():
     client.execute('INSERT INTO operational_db.dim_sellers VALUES', seller_records)
     
     rev_df = reviews[['review_id', 'order_id', 'review_score', 'review_creation_date', 'review_answer_timestamp']].copy()
-    
-    # Convert Pandas datetime/NaT to native Python datetime/None for ClickHouse driver
-    rev_df['review_creation_date'] = [x.to_pydatetime() if pd.notnull(x) else None for x in rev_df['review_creation_date']]
-    rev_df['review_answer_timestamp'] = [x.to_pydatetime() if pd.notnull(x) else None for x in rev_df['review_answer_timestamp']]
-    
     rev_df = rev_df.dropna(subset=['order_id', 'review_id'])
     rev_records = rev_df.to_dict('records')
+    
+    # Convert Pandas datetime/NaT to native Python datetime/None for ClickHouse driver
+    for record in rev_records:
+        for col in ['review_creation_date', 'review_answer_timestamp']:
+            val = record[col]
+            record[col] = val.to_pydatetime() if pd.notnull(val) else None
     client.execute('INSERT INTO operational_db.dim_reviews VALUES', rev_records)
     
     fact_cols = [
@@ -154,16 +155,19 @@ def transform_and_load():
     ]
     fact_df = fact[fact_cols].copy()
     
-    # Convert Pandas datetime/NaT to native Python datetime/None
-    for col in date_cols:
-        fact_df[col] = [x.to_pydatetime() if pd.notnull(x) else None for x in fact_df[col]]
-        
     fact_df['seller_id'] = fact_df['seller_id'].fillna('')
     fact_df['lead_time_days'] = fact_df['lead_time_days'].replace({np.nan: None})
     fact_df['processing_time_days'] = fact_df['processing_time_days'].replace({np.nan: None})
     fact_df['is_delayed'] = fact_df['is_delayed'].fillna(0).astype(int)
     
     fact_records = fact_df.to_dict('records')
+    
+    # Convert Pandas datetime/NaT to native Python datetime/None on the native dictionaries
+    # This prevents Pandas from automatically coercing None back to NaT
+    for record in fact_records:
+        for col in date_cols:
+            val = record[col]
+            record[col] = val.to_pydatetime() if pd.notnull(val) else None
     client.execute('INSERT INTO operational_db.fact_deliveries VALUES', fact_records)
     
     print(f"Successfully loaded {len(fact_records)} records into fact_deliveries.")
