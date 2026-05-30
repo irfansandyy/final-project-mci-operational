@@ -1,0 +1,8 @@
+<clickhouse>
+    <users>
+        <default>
+            <!-- Grant the default user permission to manage other users -->
+            <access_management>1</access_management>
+        </default>
+    </users>
+</clickhouse>

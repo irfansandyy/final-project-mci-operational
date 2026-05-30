@@ -80,6 +80,7 @@ services:
       - clickhouse_data_vol:/var/lib/clickhouse
       - ./clickhouse_ddl.sql:/docker-entrypoint-initdb.d/01_clickhouse_ddl.sql
       - ./clickhouse_users.sql:/docker-entrypoint-initdb.d/02_clickhouse_users.sql
+      - ./access_management.xml:/etc/clickhouse-server/users.d/access_management.xml
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 5s
