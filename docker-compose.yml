@@ -78,7 +78,8 @@ services:
     # Ports removed to prevent external access, ensuring strict Docker bridge network isolation
     volumes:
       - clickhouse_data_vol:/var/lib/clickhouse
-      - ./clickhouse_ddl.sql:/docker-entrypoint-initdb.d/clickhouse_ddl.sql
+      - ./clickhouse_ddl.sql:/docker-entrypoint-initdb.d/01_clickhouse_ddl.sql
+      - ./clickhouse_users.sql:/docker-entrypoint-initdb.d/02_clickhouse_users.sql
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 5s
@@ -97,6 +98,19 @@ services:
       clickhouse:
         condition: service_healthy
 
+  jupyter-notebook:
+    image: quay.io/jupyter/datascience-notebook:latest
+    restart: always
+    ports:
+      - "127.0.0.1:8888:8888"
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_SECURE_TOKEN:-SecureToken123}
+    command: "start-notebook.sh --ServerApp.terminals_enabled=False"
+    volumes:
+      - jupyter_data:/home/jovyan/work
+      - ./DustiniaDelixia_Groceria:/home/jovyan/work/raw_data:ro
+
 volumes:
   clickhouse_data_vol:
   metabase_data_vol:
+  jupyter_data:
