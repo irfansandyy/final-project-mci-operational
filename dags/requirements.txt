@@ -1,4 +1,4 @@
 clickhouse-driver==0.2.6
-numpy==1.25.2
+numpy>=1.26.4
 gdown==5.1.0
 pyspark==3.5.0
