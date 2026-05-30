@@ -1,0 +1,11 @@
+<clickhouse>
+    <users>
+        <jupyter_reader>
+            <password>jupyter_readonly_pass</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>readonly</profile>
+        </jupyter_reader>
+    </users>
+</clickhouse>
