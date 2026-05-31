@@ -107,8 +107,9 @@ services:
     ports:
       - "127.0.0.1:8888:8888"
     environment:
-      - JUPYTER_TOKEN=${JUPYTER_SECURE_TOKEN:-SecureToken123}
-    command: "start-notebook.sh --ServerApp.terminals_enabled=False"
+      - JUPYTER_SECURE_PASSWORD=${JUPYTER_SECURE_PASSWORD:-bismillahadmin!123}
+    command: >
+      bash -c "HASH=$$(python3 -c \"from jupyter_server.auth import passwd; print(passwd('$$JUPYTER_SECURE_PASSWORD'))\") && start-notebook.sh --ServerApp.terminals_enabled=False --ServerApp.token='' --ServerApp.password=$$HASH"
     volumes:
       - jupyter_data:/home/jovyan
       - ./DustiniaDelixia_Groceria:/home/jovyan/raw_data:ro
