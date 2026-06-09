@@ -30,24 +30,30 @@ ORDER BY (order_id, review_id);
 
 CREATE TABLE IF NOT EXISTS fact_deliveries (
     order_id String,
-    customer_id Nullable(String),
-    seller_id Nullable(String),
-    order_status Nullable(String),
+    customer_id String,
+    seller_id String,
+    order_status String,
     order_purchase_timestamp DateTime,
     order_approved_at Nullable(DateTime),
     order_delivered_carrier_date Nullable(DateTime),
     order_delivered_customer_date Nullable(DateTime),
     order_estimated_delivery_date Nullable(DateTime),
     
-    -- Calculated Operational Metrics
+    -- Corrected & New Calculated Operational Metrics
     lead_time_days Nullable(Float32),
-    processing_time_days Nullable(Float32),
-    is_delayed Nullable(UInt8), -- 1 for True, 0 for False
+    seller_processing_days Nullable(Float32),
+    carrier_transit_days Nullable(Float32),
+    sla_breach_days Nullable(Float32),
+    is_delayed Nullable(UInt8), 
     freight_value Nullable(Float32),
     purchase_hour Nullable(UInt8),
-    route Nullable(String),
+    route String,
+    customer_state String,
+    seller_state String,
+    primary_category Nullable(String),
     
     -- Machine Learning Prediction
     predicted_delay_probability Nullable(Float32)
 ) ENGINE = MergeTree()
-ORDER BY (order_purchase_timestamp, order_id);
+PARTITION BY toYYYYMM(order_purchase_timestamp)
+ORDER BY (customer_state, seller_state, order_purchase_timestamp, order_id, seller_id);

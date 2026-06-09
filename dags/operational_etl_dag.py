@@ -74,7 +74,7 @@ def data_quality_checks():
 
 def transform_and_load():
     from pyspark.sql import SparkSession
-    from pyspark.sql.functions import col, to_timestamp, datediff, hour, concat_ws, unix_timestamp, coalesce, lit, when
+    from pyspark.sql.functions import col, to_timestamp, datediff, hour, concat_ws, unix_timestamp, coalesce, lit, when, sum as _sum
     from pyspark.ml.feature import StringIndexer, VectorAssembler
     from pyspark.ml.classification import RandomForestClassifier
     
@@ -90,6 +90,8 @@ def transform_and_load():
     sellers = spark.read.csv(os.path.join(DATA_DIR, 'sellers.csv'), header=True, inferSchema=True)
     customers = spark.read.csv(os.path.join(DATA_DIR, 'customers.csv'), header=True, inferSchema=True)
     reviews = spark.read.csv(os.path.join(DATA_DIR, 'order_reviews.csv'), header=True, inferSchema=True)
+    products = spark.read.csv(os.path.join(DATA_DIR, 'products.csv'), header=True, inferSchema=True)
+    category_translation = spark.read.csv(os.path.join(DATA_DIR, 'category_translation.csv'), header=True, inferSchema=True)
 
     # Clean Timestamp columns
     date_cols = ['order_purchase_timestamp', 'order_approved_at', 
@@ -98,18 +100,45 @@ def transform_and_load():
     for c in date_cols:
         orders = orders.withColumn(c, to_timestamp(col(c)))
 
-    # Compute Metrics
-    orders = orders.withColumn("lead_time_days", (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_purchase_timestamp")) / (24 * 3600))
-    orders = orders.withColumn("processing_time_days", (unix_timestamp("order_delivered_carrier_date") - unix_timestamp("order_purchase_timestamp")) / (24 * 3600))
-    orders = orders.withColumn("is_delayed", (col("order_delivered_customer_date") > col("order_estimated_delivery_date")).cast("int"))
+    # Compute Corrected Metrics
+    orders = orders.withColumn("lead_time_days", 
+        (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_purchase_timestamp")) / (24 * 3600))
+    
+    # FIX 1: Processing time starts at approval, not purchase
+    orders = orders.withColumn("seller_processing_days", 
+        (unix_timestamp("order_delivered_carrier_date") - unix_timestamp("order_approved_at")) / (24 * 3600))
+    
+    # NEW 2: Add Carrier Transit
+    orders = orders.withColumn("carrier_transit_days", 
+        (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_delivered_carrier_date")) / (24 * 3600))
+        
+    # NEW 3: Add exact SLA Breach Days
+    orders = orders.withColumn("sla_breach_days", 
+        (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_estimated_delivery_date")) / (24 * 3600))
 
-    # Join dataframes
-    order_seller_bridge = order_items.select("order_id", "seller_id", "freight_value").dropDuplicates(["order_id"])
+    # Binary delay flag
+    orders = orders.withColumn("is_delayed", (col("sla_breach_days") > 0).cast("int"))
+
+    # FIX 4: Properly handle multiple sellers per order without dropping them, and join product categories
+    from pyspark.sql.functions import first
+    products_translated = products.join(category_translation, on="product_category_name", how="left")
+    
+    order_seller_bridge = order_items.join(products_translated, on="product_id", how="left") \
+        .groupBy("order_id", "seller_id") \
+        .agg(
+            _sum("freight_value").alias("freight_value"),
+            first("product_category_name_english").alias("primary_category")
+        )
+    
+    # Join dataframes (Now the grain is order_id + seller_id)
     fact = orders.join(order_seller_bridge, on="order_id", how="left")
     fact = fact.join(customers.select("customer_id", "customer_state"), on="customer_id", how="left")
     fact = fact.join(sellers.select("seller_id", "seller_state"), on="seller_id", how="left")
     
     fact = fact.withColumn("purchase_hour", hour("order_purchase_timestamp"))
+    fact = fact.withColumn("seller_id", coalesce(col("seller_id"), lit('UNKNOWN_SELLER')))
+    fact = fact.withColumn("customer_id", coalesce(col("customer_id"), lit('UNKNOWN_CUSTOMER')))
+    fact = fact.withColumn("order_status", coalesce(col("order_status"), lit('UNKNOWN')))
     fact = fact.withColumn("seller_state", coalesce(col("seller_state"), lit('UNKNOWN')))
     fact = fact.withColumn("customer_state", coalesce(col("customer_state"), lit('UNKNOWN')))
     fact = fact.withColumn("route", concat_ws(" -> ", col("seller_state"), col("customer_state")))
@@ -139,8 +168,15 @@ def transform_and_load():
         
         # Extract probability of class 1 (delayed)
         from pyspark.ml.functions import vector_to_array
-        predictions = predictions.withColumn("predicted_delay_probability", vector_to_array(col("probability"))[1])
-        fact_final = predictions.drop("features", "probability", "rawPrediction", "prediction", "seller_state_encoded", "customer_state_encoded")
+        predictions = predictions.withColumn("raw_probability", vector_to_array(col("probability"))[1])
+        
+        # Only assign a probability if the order wasn't canceled/unavailable
+        predictions = predictions.withColumn("predicted_delay_probability", 
+            when(col("order_status") == "delivered", col("raw_probability"))
+            .otherwise(lit(None).cast("float"))
+        )
+        
+        fact_final = predictions.drop("features", "probability", "rawPrediction", "prediction", "seller_state_encoded", "customer_state_encoded", "raw_probability")
     else:
         fact_final = fact_assembled.withColumn("predicted_delay_probability", lit(0.0)).drop("features", "seller_state_encoded", "customer_state_encoded")
         
@@ -174,19 +210,25 @@ def transform_and_load():
     dim_reviews = dim_reviews.withColumn("review_answer_timestamp", to_timestamp(col("review_answer_timestamp")))
     write_to_clickhouse(dim_reviews, "dim_reviews")
 
-    # Fact Table selection
+    # Fact Table selection updated to match new schema
     fact_cols = [
         'order_id', 'customer_id', 'seller_id', 'order_status', 
         'order_purchase_timestamp', 'order_approved_at', 
         'order_delivered_carrier_date', 'order_delivered_customer_date', 
         'order_estimated_delivery_date', 
-        'lead_time_days', 'processing_time_days', 'is_delayed', 
-        'freight_value', 'purchase_hour', 'route',
+        'lead_time_days', 'seller_processing_days', 'carrier_transit_days', 'sla_breach_days', 
+        'is_delayed', 'freight_value', 'purchase_hour', 'route',
+        'customer_state', 'seller_state', 'primary_category',
         'predicted_delay_probability'
     ]
     fact_final_write = fact_final.select(*fact_cols).filter(col("order_purchase_timestamp").isNotNull() & col("order_id").isNotNull())
-    fact_final_write = fact_final_write.withColumn("lead_time_days", col("lead_time_days").cast("float")) \
-        .withColumn("processing_time_days", col("processing_time_days").cast("float")) \
+    
+    # Casts to match ClickHouse DDL
+    fact_final_write = fact_final_write \
+        .withColumn("lead_time_days", col("lead_time_days").cast("float")) \
+        .withColumn("seller_processing_days", col("seller_processing_days").cast("float")) \
+        .withColumn("carrier_transit_days", col("carrier_transit_days").cast("float")) \
+        .withColumn("sla_breach_days", col("sla_breach_days").cast("float")) \
         .withColumn("freight_value", col("freight_value").cast("float")) \
         .withColumn("predicted_delay_probability", col("predicted_delay_probability").cast("float")) \
         .withColumn("is_delayed", col("is_delayed").cast("int")) \
