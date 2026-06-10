@@ -59,13 +59,11 @@ def data_quality_checks():
         
     orders = spark.read.csv(os.path.join(DATA_DIR, 'orders.csv'), header=True, inferSchema=True)
     
-    # Check 1: No negative delivery times
     delivered = orders.filter(col('order_delivered_customer_date').isNotNull())
     invalid_dates = delivered.filter(col('order_delivered_customer_date') < col('order_purchase_timestamp')).count()
     if invalid_dates > 0:
         print(f"Warning: Found {invalid_dates} delivery dates earlier than purchase dates.")
         
-    # Check 2: Unique order IDs
     total_orders = orders.count()
     unique_orders = orders.select('order_id').distinct().count()
     assert total_orders == unique_orders, "Data Quality Error: Duplicate order IDs found."
@@ -84,7 +82,6 @@ def transform_and_load():
         .config("spark.jars.packages", "com.clickhouse:clickhouse-jdbc:0.4.6") \
         .getOrCreate()
         
-    # Load Data
     orders = spark.read.csv(os.path.join(DATA_DIR, 'orders.csv'), header=True, inferSchema=True)
     order_items = spark.read.csv(os.path.join(DATA_DIR, 'order_items.csv'), header=True, inferSchema=True)
     sellers = spark.read.csv(os.path.join(DATA_DIR, 'sellers.csv'), header=True, inferSchema=True)
@@ -93,33 +90,26 @@ def transform_and_load():
     products = spark.read.csv(os.path.join(DATA_DIR, 'products.csv'), header=True, inferSchema=True)
     category_translation = spark.read.csv(os.path.join(DATA_DIR, 'category_translation.csv'), header=True, inferSchema=True)
 
-    # Clean Timestamp columns
     date_cols = ['order_purchase_timestamp', 'order_approved_at', 
                  'order_delivered_carrier_date', 'order_delivered_customer_date', 
                  'order_estimated_delivery_date']
     for c in date_cols:
         orders = orders.withColumn(c, to_timestamp(col(c)))
 
-    # Compute Corrected Metrics
     orders = orders.withColumn("lead_time_days", 
         (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_purchase_timestamp")) / (24 * 3600))
     
-    # FIX 1: Processing time starts at approval, not purchase
     orders = orders.withColumn("seller_processing_days", 
         (unix_timestamp("order_delivered_carrier_date") - unix_timestamp("order_approved_at")) / (24 * 3600))
     
-    # NEW 2: Add Carrier Transit
     orders = orders.withColumn("carrier_transit_days", 
         (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_delivered_carrier_date")) / (24 * 3600))
         
-    # NEW 3: Add exact SLA Breach Days
     orders = orders.withColumn("sla_breach_days", 
         (unix_timestamp("order_delivered_customer_date") - unix_timestamp("order_estimated_delivery_date")) / (24 * 3600))
 
-    # Binary delay flag
     orders = orders.withColumn("is_delayed", (col("sla_breach_days") > 0).cast("int"))
 
-    # FIX 4: Properly handle multiple sellers per order without dropping them, and join product categories
     from pyspark.sql.functions import first
     products_translated = products.join(category_translation, on="product_category_name", how="left")
     
@@ -130,7 +120,6 @@ def transform_and_load():
             first("product_category_name_english").alias("primary_category")
         )
     
-    # Join dataframes (Now the grain is order_id + seller_id)
     fact = orders.join(order_seller_bridge, on="order_id", how="left")
     fact = fact.join(customers.select("customer_id", "customer_state"), on="customer_id", how="left")
     fact = fact.join(sellers.select("seller_id", "seller_state"), on="seller_id", how="left")
@@ -143,8 +132,6 @@ def transform_and_load():
     fact = fact.withColumn("customer_state", coalesce(col("customer_state"), lit('UNKNOWN')))
     fact = fact.withColumn("route", concat_ws(" -> ", col("seller_state"), col("customer_state")))
     
-    # ML Prediction (Spark MLlib)
-    # Filter for training where is_delayed is not null
     train_data = fact.filter(col("is_delayed").isNotNull())
     
     seller_indexer = StringIndexer(inputCol="seller_state", outputCol="seller_state_encoded", handleInvalid="keep")
@@ -153,7 +140,6 @@ def transform_and_load():
     fact_indexed = seller_indexer.fit(fact).transform(fact)
     fact_indexed = customer_indexer.fit(fact_indexed).transform(fact_indexed)
     
-    # Fill nulls in purchase hour for ML
     fact_indexed = fact_indexed.fillna({"purchase_hour": 12})
     
     assembler = VectorAssembler(inputCols=["seller_state_encoded", "customer_state_encoded", "purchase_hour"], outputCol="features")
@@ -166,11 +152,9 @@ def transform_and_load():
         model = rf.fit(train_assembled)
         predictions = model.transform(fact_assembled)
         
-        # Extract probability of class 1 (delayed)
         from pyspark.ml.functions import vector_to_array
         predictions = predictions.withColumn("raw_probability", vector_to_array(col("probability"))[1])
         
-        # Only assign a probability if the order wasn't canceled/unavailable
         predictions = predictions.withColumn("predicted_delay_probability", 
             when(col("order_status") == "delivered", col("raw_probability"))
             .otherwise(lit(None).cast("float"))
@@ -180,7 +164,6 @@ def transform_and_load():
     else:
         fact_final = fact_assembled.withColumn("predicted_delay_probability", lit(0.0)).drop("features", "seller_state_encoded", "customer_state_encoded")
         
-    # Custom Write Function using native clickhouse-driver via foreachPartition
     def write_to_clickhouse(df, table_name):
         def _insert_partition(iterator):
             from clickhouse_driver import Client
@@ -195,7 +178,6 @@ def transform_and_load():
                 client.execute(f"INSERT INTO {table_name} VALUES", records)
         df.foreachPartition(_insert_partition)
 
-    # Load Dimensions
     dim_cust = customers.select("customer_id", "customer_unique_id", "customer_zip_code_prefix", "customer_city", "customer_state").filter(col("customer_id").isNotNull())
     dim_cust = dim_cust.withColumn("customer_zip_code_prefix", col("customer_zip_code_prefix").cast("int"))
     write_to_clickhouse(dim_cust, "dim_customers")
@@ -210,7 +192,6 @@ def transform_and_load():
     dim_reviews = dim_reviews.withColumn("review_answer_timestamp", to_timestamp(col("review_answer_timestamp")))
     write_to_clickhouse(dim_reviews, "dim_reviews")
 
-    # Fact Table selection updated to match new schema
     fact_cols = [
         'order_id', 'customer_id', 'seller_id', 'order_status', 
         'order_purchase_timestamp', 'order_approved_at', 
@@ -223,7 +204,6 @@ def transform_and_load():
     ]
     fact_final_write = fact_final.select(*fact_cols).filter(col("order_purchase_timestamp").isNotNull() & col("order_id").isNotNull())
     
-    # Casts to match ClickHouse DDL
     fact_final_write = fact_final_write \
         .withColumn("lead_time_days", col("lead_time_days").cast("float")) \
         .withColumn("seller_processing_days", col("seller_processing_days").cast("float")) \

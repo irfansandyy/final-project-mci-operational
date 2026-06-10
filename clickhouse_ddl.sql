@@ -38,8 +38,6 @@ CREATE TABLE IF NOT EXISTS fact_deliveries (
     order_delivered_carrier_date Nullable(DateTime),
     order_delivered_customer_date Nullable(DateTime),
     order_estimated_delivery_date Nullable(DateTime),
-    
-    -- Corrected & New Calculated Operational Metrics
     lead_time_days Nullable(Float32),
     seller_processing_days Nullable(Float32),
     carrier_transit_days Nullable(Float32),
@@ -51,8 +49,6 @@ CREATE TABLE IF NOT EXISTS fact_deliveries (
     customer_state String,
     seller_state String,
     primary_category Nullable(String),
-    
-    -- Machine Learning Prediction
     predicted_delay_probability Nullable(Float32)
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(order_purchase_timestamp)
